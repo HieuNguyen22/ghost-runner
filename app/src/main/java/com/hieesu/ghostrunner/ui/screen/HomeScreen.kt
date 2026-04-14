@@ -24,6 +24,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.hieesu.ghostrunner.ui.viewmodel.HomeUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -39,6 +40,7 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
+    val viewModel: com.hieesu.ghostrunner.ui.viewmodel.HomeViewModel = hiltViewModel()
 
     Column(
         modifier = modifier
@@ -66,55 +68,81 @@ fun HomeScreen(
         )
 
         Text(
-            text = "Tạo GPS Art từ văn bản",
+            text = "Tạo hệ sinh thái GPS Art & Park Running",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Text Input Card
-        InputCard(title = "Văn bản GPS Art") {
-            OutlinedTextField(
-                value = uiState.text,
-                onValueChange = { onTextChanged(it.uppercase()) },
-                label = { Text("Nhập văn bản (A-Z, 0-9)") },
-                leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null) },
-                placeholder = { Text("Để trống → chạy vòng kín") },
-                supportingText = { Text("Để trống để tạo lộ trình vòng kín bám đường") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
+        // Park Mode Toggle
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text("Chạy quanh công viên Nghĩa Đô", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Text("Sử dụng GPX thực tế của công viên", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+                Switch(
+                    checked = uiState.isParkMode,
+                    onCheckedChange = { viewModel.updateParkMode(it) }
+                )
+            }
         }
 
-        // Location Input Card
-        InputCard(title = "Vị trí bắt đầu") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = uiState.latitudeStr,
-                    onValueChange = onLatChanged,
-                    label = { Text("Latitude") },
-                    placeholder = { Text("10.762") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
-                )
+        AnimatedVisibility(visible = !uiState.isParkMode) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                // Text Input Card
+                InputCard(title = "Văn bản GPS Art") {
+                    OutlinedTextField(
+                        value = uiState.text,
+                        onValueChange = { onTextChanged(it.uppercase()) },
+                        label = { Text("Nhập văn bản (A-Z, 0-9)") },
+                        leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null) },
+                        placeholder = { Text("Để trống → chạy vòng kín") },
+                        supportingText = { Text("Để trống để tạo lộ trình vòng kín bám đường") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
 
-                OutlinedTextField(
-                    value = uiState.longitudeStr,
-                    onValueChange = onLngChanged,
-                    label = { Text("Longitude") },
-                    placeholder = { Text("106.660") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
-                )
+                // Location Input Card
+                InputCard(title = "Vị trí bắt đầu") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = uiState.latitudeStr,
+                            onValueChange = onLatChanged,
+                            label = { Text("Latitude") },
+                            placeholder = { Text("10.762") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+
+                        OutlinedTextField(
+                            value = uiState.longitudeStr,
+                            onValueChange = onLngChanged,
+                            label = { Text("Longitude") },
+                            placeholder = { Text("106.660") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                }
             }
         }
 

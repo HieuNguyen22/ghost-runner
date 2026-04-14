@@ -50,6 +50,10 @@ class HomeViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(durationMinutesStr = minutes)
     }
 
+    fun updateParkMode(isParkMode: Boolean) {
+        _uiState.value = _uiState.value.copy(isParkMode = isParkMode)
+    }
+
     fun generateRoute() {
         val state = _uiState.value
         val errors = validateInput(state)
@@ -65,10 +69,11 @@ class HomeViewModel @Inject constructor(
             try {
                 val config = RouteConfig(
                     text = state.text.trim(),
-                    startLatitude = state.latitudeStr.toDouble(),
-                    startLongitude = state.longitudeStr.toDouble(),
+                    startLatitude = state.latitudeStr.toDoubleOrNull() ?: 0.0,
+                    startLongitude = state.longitudeStr.toDoubleOrNull() ?: 0.0,
                     totalDistanceKm = state.distanceKmStr.toDouble(),
-                    totalDurationMinutes = state.durationMinutesStr.toInt()
+                    totalDurationMinutes = state.durationMinutesStr.toInt(),
+                    isParkMode = state.isParkMode
                 )
 
                 val session = routeGenerator.generate(config)
@@ -76,7 +81,7 @@ class HomeViewModel @Inject constructor(
 
                 // Save to history
                 val entity = RouteHistoryEntity(
-                    text = config.text,
+                    text = if (state.isParkMode) "Nghia Do Park" else config.text,
                     startLat = config.startLatitude,
                     startLng = config.startLongitude,
                     distanceKm = config.totalDistanceKm,
@@ -103,23 +108,25 @@ class HomeViewModel @Inject constructor(
     private fun validateInput(state: HomeUiState): List<String> {
         val errors = mutableListOf<String>()
 
-        // Empty text is allowed — generates a closed-loop circle route
-        if (state.text.isNotBlank()) {
-            val validChars = ('A'..'Z') + ('0'..'9') + ' '
-            val invalidChars = state.text.uppercase().filter { it !in validChars }
-            if (invalidChars.isNotEmpty()) {
-                errors.add("Ký tự không hỗ trợ: $invalidChars")
+        if (!state.isParkMode) {
+            // Empty text is allowed — generates a closed-loop circle route
+            if (state.text.isNotBlank()) {
+                val validChars = ('A'..'Z') + ('0'..'9') + ' '
+                val invalidChars = state.text.uppercase().filter { it !in validChars }
+                if (invalidChars.isNotEmpty()) {
+                    errors.add("Ký tự không hỗ trợ: $invalidChars")
+                }
             }
-        }
 
-        val lat = state.latitudeStr.toDoubleOrNull()
-        if (lat == null || lat < -90 || lat > 90) {
-            errors.add("Latitude không hợp lệ (−90 đến 90)")
-        }
+            val lat = state.latitudeStr.toDoubleOrNull()
+            if (lat == null || lat < -90 || lat > 90) {
+                errors.add("Latitude không hợp lệ (−90 đến 90)")
+            }
 
-        val lng = state.longitudeStr.toDoubleOrNull()
-        if (lng == null || lng < -180 || lng > 180) {
-            errors.add("Longitude không hợp lệ (−180 đến 180)")
+            val lng = state.longitudeStr.toDoubleOrNull()
+            if (lng == null || lng < -180 || lng > 180) {
+                errors.add("Longitude không hợp lệ (−180 đến 180)")
+            }
         }
 
         val km = state.distanceKmStr.toDoubleOrNull()
@@ -143,5 +150,6 @@ data class HomeUiState(
     val distanceKmStr: String = "5",
     val durationMinutesStr: String = "30",
     val isGenerating: Boolean = false,
+    val isParkMode: Boolean = false,
     val errors: List<String> = emptyList()
 )

@@ -43,18 +43,132 @@ class RouteGenerator @Inject constructor(
         private const val TAG = "RouteGenerator"
         const val METERS_PER_DEGREE_LAT = 111_320.0
         const val ROAD_SNAP_JITTER_SIGMA = 0.5
+        const val PARK_JITTER_SIGMA = 1.0
     }
 
     suspend fun generate(config: RouteConfig): RunSession {
-        val rawPath = textToPathEngine.generatePath(config.text)
         val targetDistanceMeters = config.totalDistanceKm * 1000.0
         val totalDurationMs = config.totalDurationMinutes * 60L * 1000L
 
+        if (config.isParkMode) {
+            return generateNghiaDoParkRoute(config, targetDistanceMeters, totalDurationMs)
+        }
+
+        val rawPath = textToPathEngine.generatePath(config.text)
         return if (rawPath.segments.isEmpty()) {
             generateRandomRoadRoute(config, targetDistanceMeters, totalDurationMs)
         } else {
             generateTextRoute(config, rawPath, targetDistanceMeters, totalDurationMs)
         }
+    }
+
+    // ─── NGHIA DO PARK MODE ─────────────────────────────────────────────
+
+    private suspend fun generateNghiaDoParkRoute(
+        config: RouteConfig,
+        targetDistanceMeters: Double,
+        totalDurationMs: Long
+    ): RunSession {
+        val routeToPark = com.hieesu.ghostrunner.domain.data.NghiaDoParkRoute.routeToPark
+        val loopPoints = com.hieesu.ghostrunner.domain.data.NghiaDoParkRoute.loopPoints
+        val allPoints = mutableListOf<GpsPoint>()
+        var currentDistance = 0.0
+
+        // Start from the very first coordinate in GPX (Company)
+        allPoints.add(routeToPark.first())
+        
+        // Phase 1: Walk to park
+        for (i in 0 until routeToPark.size - 1) {
+            if (currentDistance >= targetDistanceMeters) break
+            
+            val p1 = routeToPark[i]
+            val p2 = routeToPark[i + 1]
+            val dLat = (p2.latitude - p1.latitude) * METERS_PER_DEGREE_LAT
+            val dLng = (p2.longitude - p1.longitude) * METERS_PER_DEGREE_LAT * cos(Math.toRadians(p1.latitude))
+            val dist = kotlin.math.hypot(dLat, dLng)
+            
+            if (currentDistance + dist >= targetDistanceMeters) {
+                val remainingDist = targetDistanceMeters - currentDistance
+                val ratio = remainingDist / dist
+                val finalLat = p1.latitude + ratio * (p2.latitude - p1.latitude)
+                val finalLng = p1.longitude + ratio * (p2.longitude - p1.longitude)
+                allPoints.add(GpsPoint(finalLat, finalLng))
+                currentDistance = targetDistanceMeters
+                break
+            } else {
+                allPoints.add(p2)
+                currentDistance += dist
+            }
+        }
+        
+        // Connect routeToPark and loopPoints if needed
+        if (currentDistance < targetDistanceMeters) {
+            val p1 = routeToPark.last()
+            val p2 = loopPoints.first()
+            val dLat = (p2.latitude - p1.latitude) * METERS_PER_DEGREE_LAT
+            val dLng = (p2.longitude - p1.longitude) * METERS_PER_DEGREE_LAT * cos(Math.toRadians(p1.latitude))
+            val dist = kotlin.math.hypot(dLat, dLng)
+            
+            if (currentDistance + dist >= targetDistanceMeters) {
+                val remainingDist = targetDistanceMeters - currentDistance
+                val ratio = remainingDist / dist
+                val finalLat = p1.latitude + ratio * (p2.latitude - p1.latitude)
+                val finalLng = p1.longitude + ratio * (p2.longitude - p1.longitude)
+                allPoints.add(GpsPoint(finalLat, finalLng))
+                currentDistance = targetDistanceMeters
+            } else {
+                allPoints.add(p2)
+                currentDistance += dist
+            }
+        }
+
+        // Phase 2: Loop around park
+        var i = 0
+        while (currentDistance < targetDistanceMeters) {
+            val p1 = loopPoints[i % loopPoints.size]
+            val p2 = loopPoints[(i + 1) % loopPoints.size]
+            
+            val dLat = (p2.latitude - p1.latitude) * METERS_PER_DEGREE_LAT
+            val dLng = (p2.longitude - p1.longitude) * METERS_PER_DEGREE_LAT * cos(Math.toRadians(p1.latitude))
+            val dist = kotlin.math.hypot(dLat, dLng)
+            
+            if (currentDistance + dist > targetDistanceMeters) {
+                // Interpolate final point and break
+                val remainingDist = targetDistanceMeters - currentDistance
+                val ratio = remainingDist / dist
+                val finalLat = p1.latitude + ratio * (p2.latitude - p1.latitude)
+                val finalLng = p1.longitude + ratio * (p2.longitude - p1.longitude)
+                allPoints.add(GpsPoint(finalLat, finalLng))
+                break
+            } else {
+                allPoints.add(p2)
+                currentDistance += dist
+                i++
+            }
+        }
+
+        // Pace (apply speed and timestamps without lane shifting since GPX is already naturally aligned)
+        val paced = paceSimulator.simulatePace(
+            points = allPoints,
+            totalDurationMs = totalDurationMs,
+            totalDistanceMeters = targetDistanceMeters,
+            applyLaneShift = false
+        )
+
+        // Heavy jitter (apply GPS noise realistically at the end, increase for park mode)
+        val simulated = gpsJitterGenerator.applyJitter(paced, PARK_JITTER_SIGMA)
+
+        val segment = PathSegment(points = allPoints.map { Pair(it.latitude, it.longitude) }, type = SegmentType.PEN_DOWN)
+
+        return RunSession(
+            config = config,
+            rawPath = listOf(segment),
+            gpsRoute = allPoints,
+            simulatedRoute = simulated,
+            state = RunState.IDLE,
+            totalDistanceMeters = targetDistanceMeters,
+            totalDurationMs = totalDurationMs
+        )
     }
 
     // ─── RANDOM ROAD MODE ───────────────────────────────────────────────
@@ -127,15 +241,15 @@ class RouteGenerator @Inject constructor(
             GpsPoint(latitude = lat, longitude = lng)
         }
 
-        // Light jitter
-        val jittered = gpsJitterGenerator.applyJitter(gpsPoints, ROAD_SNAP_JITTER_SIGMA)
-
-        // Pace
-        val simulated = paceSimulator.simulatePace(
-            points = jittered,
+        // Pace (apply speed, timestamps, and lane shift on smooth points)
+        val paced = paceSimulator.simulatePace(
+            points = gpsPoints,
             totalDurationMs = totalDurationMs,
             totalDistanceMeters = actualDistance
         )
+
+        // Light jitter (apply GPS noise realistically at the end)
+        val simulated = gpsJitterGenerator.applyJitter(paced, ROAD_SNAP_JITTER_SIGMA)
 
         return RunSession(
             config = config,
@@ -171,15 +285,15 @@ class RouteGenerator @Inject constructor(
         // Convert to GpsPoints — NO interpolation after road-snap
         val cleanGpsPoints = segmentsToGpsPoints(roadSnappedSegments)
 
-        // Light jitter
-        val jittered = gpsJitterGenerator.applyJitter(cleanGpsPoints, ROAD_SNAP_JITTER_SIGMA)
-
-        // Pace
-        val simulated = paceSimulator.simulatePace(
-            points = jittered,
+        // Pace (apply speed, timestamps, and lane shift on smooth points)
+        val paced = paceSimulator.simulatePace(
+            points = cleanGpsPoints,
             totalDurationMs = totalDurationMs,
             totalDistanceMeters = actualRoadDistance
         )
+
+        // Light jitter (apply GPS noise realistically at the end)
+        val simulated = gpsJitterGenerator.applyJitter(paced, ROAD_SNAP_JITTER_SIGMA)
 
         return RunSession(
             config = config,

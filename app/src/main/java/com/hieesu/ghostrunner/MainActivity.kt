@@ -84,12 +84,12 @@ fun GhostRunnerNavHost() {
                 val uiState by viewModel.uiState.collectAsState()
                 val session by viewModel.generatedSession.collectAsState()
 
-                // Navigate to preview when a session is generated
+                // Navigate to running immediately when a session is generated
                 LaunchedEffect(session) {
                     session?.let {
                         currentSession = it
                         viewModel.clearSession()
-                        navController.navigate("preview")
+                        navController.navigate("running")
                     }
                 }
 
@@ -143,6 +143,7 @@ fun GhostRunnerNavHost() {
                             navController.popBackStack("home", false)
                         },
                         onFinished = {
+                            runViewModel.stopRun()
                             navController.popBackStack("home", false)
                         }
                     )

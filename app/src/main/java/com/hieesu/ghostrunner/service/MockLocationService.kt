@@ -192,7 +192,7 @@ class MockLocationService : Service() {
                 if (currentIndex < points.size - 1) {
                     val nextPoint = points[currentIndex + 1]
                     val timeDiff = nextPoint.timestamp - point.timestamp
-                    val delayMs = timeDiff.coerceIn(100L, 5000L)
+                    val delayMs = timeDiff.coerceAtLeast(100L)
 
                     // During the wait, the repushJob keeps pushing the current
                     // location at REPUSH_INTERVAL_MS intervals. But we also
@@ -245,7 +245,7 @@ class MockLocationService : Service() {
                 progress = 100f
             )
 
-            stopMocking()
+            // Do NOT call stopMocking()! Wait for user to explicitly press Finish
         }
     }
 
